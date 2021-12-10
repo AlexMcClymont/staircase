@@ -1,9 +1,11 @@
 
-#' A simple modeling function using a formula and data
+#' Rearranges a data frame into a formula style arrangement
 #'
-#' @param formula A formula as in lm()
+#' @param formula A formula as in lm() e.g. Y ~ X1 + X2
 #' @param data A data.frame containing the elements specified in the formula
-#' @return A list of matrices
+#' @return A list of 2 matrices, the first is the response variable defined in
+#' the formula parameter. The second is a list containing all the other
+#' variables defined in the formula parameter.
 #' @importFrom stats model.matrix model.response
 #' @export
 #' @author Jay ver Hoef
@@ -28,8 +30,36 @@ mylm <- function(formula, data) {
 }
 
 
-# A simple modeling function using a formula and data
-# by Mitzi Morris
+
+#' A function that finds the neighbours of each point in the vornoi graph.
+#'
+#' @param adjBUGS a list of region ids for the adjacent regions
+#' @param numBUGS a list of the number of neighbours for each region
+#' @return a list containing parameters required by the stan model.
+#' @author Mitzi Morris
+#' @examples
+#' \dontrun{
+#' nb2 <- voronoi(matrix(c(data$lon, data$lat), ncol=2))
+#'
+#' #https://gis.stackexchange.com/questions/237810/adjacency-matrix-not-including-vertices
+#' polyids = seq_along(nb2)
+#' adjMat = matrix(FALSE, ncol = length(nb2), nrow = length(nb2))
+#'
+#' for (ii in polyids) {
+#'   for (jj in setdiff(polyids, seq_len(ii))) {
+#'     adjMat[ii, jj] =
+#'       ifelse(class(gIntersection(nb2[ii, ], nb2[jj, ])) == 'SpatialLines',1,0)
+#'   }
+#' }
+#'
+#' #use symmetry for the other half
+#' adjMat[lower.tri(adjMat)] = t(adjMat)[lower.tri(adjMat)]
+#'
+#' num <- apply(W,1,sum)
+#' adj <- c(unlist(apply(W,1,function(x) which(x == 1) ) ))
+#' munged_data <- mungeCARdata4stan(adjBUGS = adj,numBUGS = num)
+#' }
+
 
 mungeCARdata4stan = function(adjBUGS,numBUGS) {
   N = length(numBUGS);
@@ -75,7 +105,17 @@ mungeCARdata4stan = function(adjBUGS,numBUGS) {
 #' imputed before using ir_spat(). Many options can be found in
 #' https://cran.r-project.org/web/views/MissingData.html.\cr\cr The probability
 #' that a user correctly identified a point is specified by the equation:\cr\cr
-#' \figure{probability.png}{options: align="middle"}\cr\cr The item type parameter
+#' \figure{probability.png}{options: align="middle"}\cr\cr
+#' The model above indicates the probability (p_ijk) that a user (i) identifies
+#' annotation (j) in image (k) correctly. Wher: \cr
+#'    θ_i is the latent ability of the user i (larger θ indicates a larger
+#'    probability of identifying the item). \cr
+#'    η_j is the pseudoguessing for image j. This accounts for the chance of
+#'    the user correctly identifying the item through guessing.
+#'    b_j is the difficulty of the image j.
+#'    α_j represents the slope or discrimination parameter of image j. This
+#'    indicates how quickly the function will go from 0 to 1.
+#' \cr The item type parameter
 #'  in the ir_spat function can receive any of the Models in the first column:\cr
 #'  \cr\figure{modelCoef.png}{options: align="middle"}
 #' @export
@@ -116,7 +156,6 @@ ir_spat <- function(formula,
 
   ##############################################################################
   # Verify there is no missing data
-
   `%notin%` <- Negate(`%in%`)
 
   annot <- simplify2array(data[,abil, drop=TRUE])
@@ -130,9 +169,7 @@ ir_spat <- function(formula,
     stop('Need to define the binary response variable y')
   }
 
-  if(!missing(y)){
-    data$correct <- data[,names(data) == y]
-  }
+  data$correct <- simplify2array(data[,y, drop=TRUE])
 
   # checks
   if(missing(spat_model)){
@@ -582,7 +619,6 @@ ir_spat <- function(formula,
   node1 = munged_data$node1
   node2 = munged_data$node2
   N_edges = munged_data$N_edges
-
   #if(!is.null(slope) ) slope <- data[,slope]
   #if(!is.null(slope) ) guessing <- data[,guessing]
   Nspecies <- length(unique(data$True_Species_num))
@@ -593,7 +629,7 @@ ir_spat <- function(formula,
                id = data$id, # image id
                annot = data$annotNum, # users id
                X = X, # design matrix of covariates
-               y = data[,"correct" ,drop=TRUE],
+               y = data$correct,
                Nspecies = Nspecies,
                species_id = data$True_Species_num,
                #car part
